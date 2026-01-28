@@ -18,7 +18,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 
 // Config
-const API_URL = 'http://192.168.29.243:5000/register';
+import { BASE_URL } from '../config';
+const API_URL = `${BASE_URL}/register`;
 
 // TACTICAL PALETTE
 const COLORS = {

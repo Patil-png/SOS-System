@@ -4,8 +4,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useIsFocused } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BASE_URL } from '../config';
 
-const API_URL = 'http://192.168.29.243:5000';
+const API_URL = BASE_URL;
 
 const COLORS = {
     bg: '#000000',

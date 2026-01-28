@@ -9,8 +9,9 @@ import LiveMapBubble from '../components/LiveMapBubble';
 import LiveLocationCard from '../components/LiveLocationCard';
 import AudioPlayer from '../components/AudioPlayer';
 import * as SMS from 'expo-sms'; // Add Import
+import { BASE_URL } from '../config';
 
-const API_URL = 'http://192.168.29.243:5000';
+const API_URL = BASE_URL;
 const { width } = Dimensions.get('window');
 
 // Modern Midnight Palette

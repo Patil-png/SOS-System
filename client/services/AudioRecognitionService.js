@@ -1,8 +1,28 @@
-import { loadTensorflowModel } from 'react-native-fast-tflite';
-import LiveAudioStream from 'react-native-live-audio-stream';
+// Graceful fallback for when native modules aren't available
+let loadTensorflowModel = null;
+let LiveAudioStream = null;
+
+try {
+    const tflite = require('react-native-fast-tflite');
+    loadTensorflowModel = tflite.loadTensorflowModel;
+} catch (e) {
+    console.warn('react-native-fast-tflite not available. Audio recognition disabled.');
+}
+
+try {
+    LiveAudioStream = require('react-native-live-audio-stream').default;
+} catch (e) {
+    console.warn('react-native-live-audio-stream not available. Audio recognition disabled.');
+}
+
 import { Buffer } from 'buffer';
 
-const MODEL_PATH = require('../assets/models/yamnet.tflite');
+let MODEL_PATH = null;
+try {
+    MODEL_PATH = require('../assets/models/yamnet.tflite');
+} catch (e) {
+    console.warn('YAMNet model not found.');
+}
 
 // Key indices for YAMNet (approximate based on standard map)
 // User wants: Screaming, Sirens, Glass breaking, Barking
@@ -23,8 +43,23 @@ const DANGEROUS_INDICES = {
     496: 'Baby crying',
 };
 
+// Common sounds for debugging context (Speech, Silence, etc)
+const DEBUG_LABELS = {
+    0: 'Speech',
+    494: 'Silence',
+    67: 'Silence', // Another silence class
+    137: 'Music',
+    138: 'Musical instrument',
+    139: 'Music',
+    500: 'Screaming', // Re-map dangerous ones for debug lookup too
+    501: 'Shrieking',
+    316: 'Siren',
+    420: 'Explosion'
+};
+
 // Threshold to trigger alert (0-1)
-const DETECTION_THRESHOLD = 0.4;
+// Threshold to trigger alert (0-1)
+const DETECTION_THRESHOLD = 0.35; // Sensitive (35%)
 const SAMPLE_RATE = 16000;
 const BUFFER_SIZE = 15600; // 0.975s * 16000
 
@@ -92,6 +127,15 @@ class AudioRecognitionService {
             const probabilities = result[0];
 
             this.analyzeResults(probabilities);
+
+            // Debug: Log top prediction occasionally
+            if (Math.random() < 0.1) {
+                let maxIdx = 0;
+                for (let i = 0; i < probabilities.length; i++) if (probabilities[i] > probabilities[maxIdx]) maxIdx = i;
+
+                const name = DEBUG_LABELS[maxIdx] || DANGEROUS_INDICES[maxIdx] || 'Background/Other';
+                console.log(`[Debug] Hearing: ${name} (Index ${maxIdx}, Conf: ${probabilities[maxIdx].toFixed(2)})`);
+            }
         } catch (e) {
             console.error('Inference error:', e);
         }
@@ -103,7 +147,14 @@ class AudioRecognitionService {
 
         for (const [index, label] of Object.entries(DANGEROUS_INDICES)) {
             const score = probabilities[index];
-            if (score > DETECTION_THRESHOLD && score > maxScore) {
+
+            // Dynamic Threshold: Lower for screaming/shrieking as YAMNet often under-confidences these
+            let threshold = DETECTION_THRESHOLD;
+            if (label === 'Screaming' || label === 'Shrieking') {
+                threshold = 0.20; // Lower threshold to 20% for screams
+            }
+
+            if (score > threshold && score > maxScore) {
                 maxScore = score;
                 detectedDanger = label;
             }
@@ -126,16 +177,42 @@ class AudioRecognitionService {
         this.subscribers.forEach(cb => cb({ label, confidence }));
     }
 
-    start() {
+    async start() {
+        if (!loadTensorflowModel || !LiveAudioStream) {
+            console.warn('Audio recognition not available in this build. Skipping.');
+            return;
+        }
         if (this.isListening) return;
-        if (!this.model) this.loadModel();
-        this.initAudioStream();
-        LiveAudioStream.start();
-        this.isListening = true;
+
+        // Request permissions
+        try {
+            const { Audio } = require('expo-av');
+            const { status } = await Audio.requestPermissionsAsync();
+            if (status !== 'granted') {
+                console.warn('Audio permission not granted');
+                return;
+            }
+        } catch (e) {
+            console.warn('Error requesting audio permission:', e);
+        }
+
+        if (!this.model) await this.loadModel();
+
+        try {
+            this.initAudioStream();
+            LiveAudioStream.start();
+            this.isListening = true;
+            console.log('✅ The Ear is ACTIVE: Listening for Screaming, Glass Breaking, Gunshots...');
+        } catch (e) {
+            console.error('Failed to start audio stream:', e);
+            this.isListening = false;
+        }
     }
 
     stop() {
-        LiveAudioStream.stop();
+        if (LiveAudioStream) {
+            LiveAudioStream.stop();
+        }
         this.isListening = false;
         this.audioBuffer = [];
     }

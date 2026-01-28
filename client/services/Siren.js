@@ -34,3 +34,17 @@ export const toggleSiren = async () => {
         return false;
     }
 };
+
+// Start siren (only if not already playing)
+export const startSiren = async () => {
+    if (!soundObject) {
+        await toggleSiren();
+    }
+};
+
+// Stop siren (only if playing)
+export const stopSiren = async () => {
+    if (soundObject) {
+        await toggleSiren();
+    }
+};

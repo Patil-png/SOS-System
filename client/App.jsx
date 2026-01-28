@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, Text, StatusBar, Alert } from 'react-native';
+import { StyleSheet, View, Text, StatusBar, Alert, Platform } from 'react-native';
 import { PaperProvider, MD3LightTheme as DefaultTheme, Button, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
@@ -16,7 +16,17 @@ import LiveTrackingScreen from './screens/LiveTrackingScreen';
 import { initBatteryListener } from './services/BatteryListener';
 import { triggerFakeCall } from './services/FakeCall';
 import FakeCallScreen from './screens/FakeCallScreen';
+import SafeWordLockScreen from './screens/SafeWordLockScreen';
 import * as Notifications from 'expo-notifications';
+
+// Configure notifications to appear even when app is in foreground
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 // Conditional import for CallScreen (requires native modules)
 let CallScreen = null;
@@ -26,9 +36,10 @@ try {
   console.warn('CallScreen not available (requires Development Client)');
 }
 
-import { SettingsProvider } from './context/SettingsContext';
-import { ZoneEngineProvider } from './context/ZoneEngineContext';
+import { SettingsProvider, useSettings } from './context/SettingsContext';
+import { ZoneEngineProvider, useZoneEngine } from './context/ZoneEngineContext';
 import { initCrimeDatabase } from './services/CrimeDatabase';
+import { stopSiren } from './services/Siren';
 
 const Stack = createNativeStackNavigator();
 
@@ -78,6 +89,21 @@ export default function App() {
       }
     });
 
+    // Request Permissions & Create Channel
+    (async () => {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== 'granted') console.log('Permission not granted for notifications');
+
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'default',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#FF231F7C',
+        });
+      }
+    })();
+
     return () => {
       subscription.remove();
       foregroundSubscription.remove();
@@ -92,43 +118,109 @@ export default function App() {
     );
   }
 
+  return (
+    <PaperProvider theme={theme}>
+      <SafeAreaProvider>
+        <SettingsProvider>
+          <ZoneEngineProvider>
+            <AppContent
+              isAuthenticated={isAuthenticated}
+              checkAuth={checkAuth}
+              isStealth={isStealth}
+              isUnlocked={isUnlocked}
+              setIsUnlocked={setIsUnlocked}
+              navigationRef={navigationRef}
+            />
+          </ZoneEngineProvider>
+        </SettingsProvider>
+      </SafeAreaProvider>
+    </PaperProvider>
+  );
+}
+
+// Wrapper component to access context hooks
+function AppContent({ isAuthenticated, checkAuth, isStealth, isUnlocked, setIsUnlocked, navigationRef }) {
+  const { isLocked, setIsLocked, countdownSeconds, setCountdownSeconds } = useZoneEngine();
+  const { settings } = useSettings();
+
+  const handleUnlock = () => {
+    setIsLocked(false);
+    setCountdownSeconds(null); // Reset countdown
+    stopSiren(); // Stop the siren if playing
+  };
+
+  // Register Notification Category for Direct Reply
+  useEffect(() => {
+    Notifications.setNotificationCategoryAsync('sos-reply', [
+      {
+        identifier: 'safe-word-reply',
+        buttonTitle: 'I AM SAFE',
+        textInput: {
+          submitButtonTitle: 'Verify',
+          placeholder: 'Enter Safe Word',
+        },
+        options: {
+          opensAppToForeground: false, // Can reply from background
+        },
+      },
+    ]);
+
+    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+      if (response.actionIdentifier === 'safe-word-reply') {
+        const userText = response.userText;
+        if (userText && settings.safeWord && userText.toLowerCase().trim() === settings.safeWord.toLowerCase().trim()) {
+          handleUnlock();
+          // Cancel any visible notifications
+          Notifications.dismissAllNotificationsAsync();
+        }
+      }
+    });
+
+    return () => subscription.remove();
+  }, [settings.safeWord]); // Re-bind if safe word changes
+
   // Stealth Mode Logic
   if (isStealth && !isUnlocked && isAuthenticated) {
     return <CalculatorScreen onUnlock={() => setIsUnlocked(true)} />;
   }
 
   return (
-    <SafeAreaProvider>
-      <PaperProvider theme={theme}>
-        <SettingsProvider>
-          <ZoneEngineProvider>
-            <StatusBar barStyle="dark-content" backgroundColor="#f0f0f0" />
-            <NavigationContainer ref={navigationRef}>
-              <Stack.Navigator screenOptions={{ headerShown: false }}>
-                {!isAuthenticated ? (
-                  <>
-                    <Stack.Screen name="Login">
-                      {(props) => <LoginScreen {...props} onLogin={checkAuth} />}
-                    </Stack.Screen>
-                    <Stack.Screen name="Signup">
-                      {(props) => <SignupScreen {...props} onLogin={checkAuth} />}
-                    </Stack.Screen>
-                  </>
-                ) : (
-                  <>
-                    <Stack.Screen name="Home" component={HomeScreen} />
-                    <Stack.Screen name="ChatScreen" component={ChatScreen} />
-                    <Stack.Screen name="LiveTracking" component={LiveTrackingScreen} options={{ headerShown: false }} />
-                    <Stack.Screen name="FakeCall" component={FakeCallScreen} options={{ headerShown: false, gestureEnabled: false }} />
-                    {CallScreen && <Stack.Screen name="CallScreen" component={CallScreen} options={{ headerShown: false }} />}
-                  </>
-                )}
-              </Stack.Navigator>
-            </NavigationContainer>
-          </ZoneEngineProvider>
-        </SettingsProvider>
-      </PaperProvider>
-    </SafeAreaProvider>
+    <>
+      <StatusBar barStyle="dark-content" backgroundColor="#f0f0f0" />
+      <NavigationContainer ref={navigationRef}>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {!isAuthenticated ? (
+            <>
+              <Stack.Screen name="Login">
+                {(props) => <LoginScreen {...props} onLogin={checkAuth} />}
+              </Stack.Screen>
+              <Stack.Screen name="Signup">
+                {(props) => <SignupScreen {...props} onLogin={checkAuth} />}
+              </Stack.Screen>
+            </>
+          ) : (
+            <>
+              <Stack.Screen name="Home" component={HomeScreen} />
+              <Stack.Screen name="ChatScreen" component={ChatScreen} />
+              <Stack.Screen name="LiveTracking" component={LiveTrackingScreen} options={{ headerShown: false }} />
+              <Stack.Screen name="FakeCall" component={FakeCallScreen} options={{ headerShown: false, gestureEnabled: false }} />
+              {CallScreen && <Stack.Screen name="CallScreen" component={CallScreen} options={{ headerShown: false }} />}
+            </>
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+
+      {/* Safe Word Lock Screen Overlay */}
+      {isLocked && settings.safeWord && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 9999 }}>
+          <SafeWordLockScreen
+            safeWord={settings.safeWord}
+            countdownSeconds={countdownSeconds}
+            onUnlock={handleUnlock}
+          />
+        </View>
+      )}
+    </>
   );
 }
 

@@ -10,6 +10,12 @@ export const ZoneEngineProvider = ({ children }) => {
     const [riskReason, setRiskReason] = useState(null);
     const [userLocation, setUserLocation] = useState(null);
     const [audioDanger, setAudioDanger] = useState(null);
+    const [isLocked, setIsLocked] = useState(false); // Lock state for safe word
+    const [countdownSeconds, setCountdownSeconds] = useState(null); // 30s Countdown
+    const [isSOSActive, setIsSOSActive] = useState(false); // True AFTER countdown fails
+    const lastAlertTime = React.useRef(0); // Track last alert time
+    const locationRef = React.useRef(null); // Store location synchronously
+    const countdownInterval = React.useRef(null); // Ref for interval
 
     // Poll intervals
     const LOCATION_INTERVAL = 60000; // 1 min
@@ -29,9 +35,18 @@ export const ZoneEngineProvider = ({ children }) => {
                 const loc = await Location.getCurrentPositionAsync({});
                 handleLocationUpdate(loc);
 
-                // Watch
+                // Watch with Foreground Service (Keeps App Alive)
                 locationSub = await Location.watchPositionAsync(
-                    { accuracy: Location.Accuracy.High, timeInterval: 30000, distanceInterval: 100 },
+                    {
+                        accuracy: Location.Accuracy.Balanced,
+                        timeInterval: 10000,
+                        distanceInterval: 50,
+                        foregroundService: {
+                            notificationTitle: "SOS System Active",
+                            notificationBody: "Monitoring audio and location for safety...",
+                            notificationColor: "#ff0000"
+                        }
+                    },
                     handleLocationUpdate
                 );
             }
@@ -49,11 +64,19 @@ export const ZoneEngineProvider = ({ children }) => {
 
     const handleAudioAlert = ({ label, confidence }) => {
         console.log('Engine received audio alert:', label);
-        setAudioDanger({ label, confidence, timestamp: Date.now() });
-        evaluateRisk(userLocation, { label, confidence });
+        const audioData = { label, confidence, timestamp: Date.now() };
+        setAudioDanger(audioData);
+
+        // Only evaluate if we have location data (use ref for immediate access)
+        if (locationRef.current) {
+            evaluateRisk(locationRef.current, audioData);
+        } else {
+            console.warn('⚠️ Audio alert received but location not ready yet. Will evaluate on next location update.');
+        }
     };
 
     const handleLocationUpdate = async (location) => {
+        locationRef.current = location;
         setUserLocation(location);
         evaluateRisk(location, audioDanger);
     };
@@ -77,7 +100,6 @@ export const ZoneEngineProvider = ({ children }) => {
         // 3. Audio Risk (Immediate Trigger)
         let isDangerousSound = false;
         if (audio && (Date.now() - (audio.timestamp || Date.now())) < 30000) {
-            // If audio detected within last 30 seconds
             reasons.push(`Sound: ${audio.label}`);
             isDangerousSound = true;
         }
@@ -95,17 +117,96 @@ export const ZoneEngineProvider = ({ children }) => {
         if (newZone !== zoneStatus) {
             setZoneStatus(newZone);
             setRiskReason(reasons.join(', '));
+        }
 
-            // Auto-trigger actions could go here (e.g. Navigation to Fake Call)
-            if (newZone === 'RED') {
-                // Trigger SOS Sequence?
-                console.warn('ZONE RED: TRIGGERING SOS LOGIC');
+        // Auto-trigger actions (Trigger every time for RED, with debounce)
+        if (newZone === 'RED') {
+            const timeSinceLastAlert = Date.now() - lastAlertTime.current;
+
+            if (timeSinceLastAlert > 3000) { // Debounce: Wait 3s between alerts
+                console.warn('ZONE RED: STARTING COUNTDOWN');
+                lastAlertTime.current = Date.now();
+
+                // If already active or counting down, don't restart logic aggressively?
+                // Actually, if SOS is already active, we just keep it active.
+                if (isSOSActive) return;
+
+                // If countdown already running, don't restart it
+                if (countdownSeconds !== null) return;
+
+                // 1. Lock App & Start Countdown
+                setIsLocked(true);
+                setCountdownSeconds(30);
+
+                // Notify User to Respond
+                const Notifications = require('expo-notifications');
+                Notifications.scheduleNotificationAsync({
+                    content: {
+                        title: "⚠️ DANGER DETECTED (30s)",
+                        body: "Reply with SAFE WORD to cancel SOS.",
+                        categoryIdentifier: 'sos-reply', // Matches the category in App.jsx
+                        data: { type: 'countdown_alert' },
+                        priority: Notifications.AndroidNotificationPriority.HIGH,
+                        sound: true,
+                        vibrate: [0, 500],
+                    },
+                    trigger: null,
+                });
+
+                // Start Interval
+                if (countdownInterval.current) clearInterval(countdownInterval.current);
+
+                countdownInterval.current = setInterval(() => {
+                    setCountdownSeconds(prev => {
+                        if (prev <= 1) {
+                            // Timer Finished
+                            clearInterval(countdownInterval.current);
+                            countdownInterval.current = null;
+                            triggerSOS(audio ? audio.label : 'Danger');
+                            return 0;
+                        }
+                        return prev - 1;
+                    });
+                }, 1000);
             }
         }
     };
 
+    // Actual SOS Trigger (Siren + Notification)
+    const triggerSOS = (label) => {
+        console.warn('🚨 COUNTDOWN EXPIRED: TRIGGERING FULL SOS 🚨');
+        setIsSOSActive(true);
+        const { startSiren } = require('../services/Siren');
+        startSiren();
+
+        const Notifications = require('expo-notifications');
+        Notifications.scheduleNotificationAsync({
+            content: {
+                title: "🚨 SOS ALERT SENT 🚨",
+                body: `Emergency! ${label || 'Danger'} detected. Guardians notified.`,
+                data: { type: 'danger_alert' },
+                sound: true,
+                priority: Notifications.AndroidNotificationPriority.MAX,
+                vibrate: [0, 500, 500, 500],
+            },
+            trigger: null,
+        });
+        // TODO: Here we would also send the API request to guardians
+    };
+
     return (
-        <ZoneEngineContext.Provider value={{ zoneStatus, riskReason, userLocation, audioDanger }}>
+        <ZoneEngineContext.Provider value={{
+            zoneStatus,
+            riskReason,
+            userLocation,
+            audioDanger,
+            isLocked,
+            setIsLocked,
+            countdownSeconds,
+            isSOSActive,
+            setCountdownSeconds, // Exported to allow reset
+            setIsSOSActive
+        }}>
             {children}
         </ZoneEngineContext.Provider>
     );

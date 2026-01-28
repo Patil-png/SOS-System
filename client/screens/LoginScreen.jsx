@@ -17,7 +17,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 
-const API_URL = 'http://192.168.29.243:5000/login';
+import { BASE_URL } from '../config';
+const API_URL = `${BASE_URL}/login`;
 const { width } = Dimensions.get('window');
 
 // PROFESSIONAL SOS PALETTE

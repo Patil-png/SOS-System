@@ -39,6 +39,13 @@
       }
     },
     "plugins": [
+      [
+        "expo-location",
+        {
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
       "expo-sqlite",
       "react-native-fast-tflite"
     ]

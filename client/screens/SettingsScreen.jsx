@@ -38,6 +38,18 @@ export default function SettingsScreen({ navigation }) {
     const { settings, updateSetting } = useSettings();
     const { shakeSensitivity, radius, safeWord, isStealth, shakeEnabled } = settings;
 
+    // Local state to prevent input blur on each keystroke
+    const [localSafeWord, setLocalSafeWord] = React.useState('');
+    const hasInitialized = React.useRef(false);
+
+    // Sync local state only once when settings first load
+    React.useEffect(() => {
+        if (!hasInitialized.current && safeWord !== undefined) {
+            setLocalSafeWord(safeWord);
+            hasInitialized.current = true;
+        }
+    }, [safeWord]);
+
     const _handleLogout = async () => {
         await AsyncStorage.clear();
         alert("Logged out. Restart app.");
@@ -156,20 +168,34 @@ export default function SettingsScreen({ navigation }) {
                     <SettingItem
                         icon="key-outline"
                         title="Safe Word"
-                        description="Voice command to cancel SOS"
+                        description="Unlock app during emergencies"
                         subContent={
-                            <View style={styles.inputContainer}>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="e.g. 'Password'"
-                                    placeholderTextColor={THEME.textDim}
-                                    value={safeWord}
-                                    onChangeText={(t) => updateSetting('safeWord', t)}
-                                    autoCapitalize="none"
-                                />
-                                <View style={styles.inputBadge}>
-                                    <Ionicons name="mic-outline" size={14} color={THEME.textDim} />
+                            <View style={styles.safeWordContainer}>
+                                <View style={styles.inputContainerFullWidth}>
+                                    <TextInput
+                                        style={styles.input}
+                                        placeholder="e.g. 'butterfly'"
+                                        placeholderTextColor={THEME.textDim}
+                                        value={localSafeWord}
+                                        onChangeText={setLocalSafeWord}
+                                        autoCapitalize="none"
+                                        returnKeyType="done"
+                                    />
                                 </View>
+                                <TouchableOpacity
+                                    style={[
+                                        styles.saveButton,
+                                        localSafeWord === safeWord && styles.saveButtonDisabled
+                                    ]}
+                                    onPress={() => {
+                                        updateSetting('safeWord', localSafeWord);
+                                    }}
+                                    disabled={localSafeWord === safeWord}
+                                >
+                                    <Text style={styles.saveButtonText}>
+                                        {localSafeWord === safeWord ? 'Saved ✓' : 'Save'}
+                                    </Text>
+                                </TouchableOpacity>
                             </View>
                         }
                     />
@@ -381,7 +407,25 @@ const styles = StyleSheet.create({
     },
 
     // Input Styling
+    safeWordContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        marginLeft: -52,
+        width: '100%',
+    },
     inputContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: THEME.inputBg,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: THEME.cardBorder,
+        height: 46,
+        paddingHorizontal: 12,
+    },
+    inputContainerFullWidth: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: THEME.inputBg,
@@ -396,6 +440,23 @@ const styles = StyleSheet.create({
         color: THEME.text,
         fontSize: 15,
         fontWeight: '500',
+    },
+    saveButton: {
+        backgroundColor: THEME.primary,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderRadius: 10,
+        minWidth: 70,
+        alignItems: 'center',
+    },
+    saveButtonDisabled: {
+        backgroundColor: '#334155',
+        opacity: 0.6,
+    },
+    saveButtonText: {
+        color: '#FFF',
+        fontSize: 14,
+        fontWeight: '600',
     },
     inputBadge: {
         paddingHorizontal: 6,

@@ -2,10 +2,11 @@ import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
+import { BASE_URL } from '../config';
 
 let recording = null;
 let incidentLocation = null;
-const SERVER_URL = 'http://192.168.29.243:5000';
+const SERVER_URL = BASE_URL;
 
 export const startEmergencyRecording = async (location = null) => {
     try {

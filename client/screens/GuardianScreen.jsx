@@ -5,8 +5,9 @@ import { Audio } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons, Ionicons, Feather } from '@expo/vector-icons';
+import { BASE_URL } from '../config';
 
-const SERVER_URL = 'http://192.168.29.243:5000';
+const SERVER_URL = BASE_URL;
 
 // ---------------------------------------------------------
 // REFINED DARK THEME PALETTE

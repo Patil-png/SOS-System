@@ -22,11 +22,18 @@ import GuardianScreen from './GuardianScreen'; // Assuming default export
 
 import { useShakeSensor } from '../hooks/useShakeSensor'; // Import Hook
 import SafetyZoneIndicator from '../components/SafetyZoneIndicator';
+import { API_URL } from '../config';
 
 const Tab = createBottomTabNavigator();
 
 function Dashboard({ navigation }) {
     const [userName, setUserName] = useState('User');
+    // ... (omitting unchanged lines for brevity if possible, keeping context)
+    // But replace_file_content needs contiguous block. 
+    // I will just fix the Top import and the fetch call separately if they are far apart. 
+    // Actually, `API_URL` import was the syntax error inside a function. 
+    // I will simply ADD the import at the top, and REMOVE the bad line.
+
     const [isSirenPlaying, setIsSirenPlaying] = useState(false);
     const [isArmed, setIsArmed] = useState(false); // Move state here or use Context in real app
 
@@ -78,7 +85,9 @@ function Dashboard({ navigation }) {
         try {
             const userId = await AsyncStorage.getItem('userId');
             if (userId && currentLocation) {
-                await fetch('http://192.168.29.243:5000/api/incidents/create', {
+                // ...
+
+                await fetch(`${API_URL}/incidents/create`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -141,7 +150,7 @@ function Dashboard({ navigation }) {
             try {
                 const userId = await AsyncStorage.getItem('userId');
                 if (userId) {
-                    await fetch('http://192.168.29.243:5000/api/incidents/create', {
+                    await fetch(`${API_URL}/incidents/create`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({

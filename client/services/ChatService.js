@@ -1,6 +1,7 @@
 import { io } from 'socket.io-client';
+import { BASE_URL } from '../config';
 
-const SOCKET_URL = 'http://192.168.29.243:5000'; // Match your server URL
+const SOCKET_URL = BASE_URL;
 
 class ChatService {
     socket = null;
