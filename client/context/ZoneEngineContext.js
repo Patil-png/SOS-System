@@ -2,6 +2,10 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import * as Location from 'expo-location';
 import AudioRecognitionService from '../services/AudioRecognitionService';
 import { getRiskScoreNodes } from '../services/CrimeDatabase';
+import { startBackgroundUpdate, stopBackgroundUpdate } from '../services/BackgroundService';
+import { startEmergencyRecording } from '../services/EvidenceService';
+import { API_URL } from '../config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const ZoneEngineContext = createContext();
 
@@ -13,6 +17,7 @@ export const ZoneEngineProvider = ({ children }) => {
     const [isLocked, setIsLocked] = useState(false); // Lock state for safe word
     const [countdownSeconds, setCountdownSeconds] = useState(null); // 30s Countdown
     const [isSOSActive, setIsSOSActive] = useState(false); // True AFTER countdown fails
+    const [isArmed, setIsArmed] = useState(false); // Master Toggle for Audio/Location
     const lastAlertTime = React.useRef(0); // Track last alert time
     const locationRef = React.useRef(null); // Store location synchronously
     const countdownInterval = React.useRef(null); // Ref for interval
@@ -22,10 +27,16 @@ export const ZoneEngineProvider = ({ children }) => {
 
     useEffect(() => {
         let locationSub = null;
+        let stopAudioSub = () => { };
 
         const startServices = async () => {
+            if (!isArmed) return;
+
+            // 0. Background Service (Keeps App Alive & Shake Detection)
+            startBackgroundUpdate();
+
             // 1. Audio
-            const stopAudioSub = AudioRecognitionService.subscribe(handleAudioAlert);
+            stopAudioSub = AudioRecognitionService.subscribe(handleAudioAlert);
             AudioRecognitionService.start();
 
             // 2. Location
@@ -50,20 +61,36 @@ export const ZoneEngineProvider = ({ children }) => {
                     handleLocationUpdate
                 );
             }
-
-            return () => {
-                stopAudioSub();
-                AudioRecognitionService.stop();
-                if (locationSub) locationSub.remove();
-            };
         };
 
-        const cleanup = startServices();
-        return () => { cleanup.then(c => c && c()); };
-    }, []);
+        const stopServices = async () => {
+            stopBackgroundUpdate();
+            stopAudioSub();
+            AudioRecognitionService.stop();
+            if (locationSub) locationSub.remove();
+        };
+
+        if (isArmed) {
+            startServices();
+        } else {
+            stopServices();
+        }
+
+        return () => {
+            stopServices();
+        };
+    }, [isArmed]);
 
     const handleAudioAlert = ({ label, confidence }) => {
         console.log('Engine received audio alert:', label);
+
+        // STRICT FILTER: Only Gunshot and Explosion allowed
+        const ALLOWED_TRIGGERS = ['Gunshot', 'Explosion'];
+        if (!ALLOWED_TRIGGERS.includes(label)) {
+            console.log(`Ignoring non-critical sound: ${label}`);
+            return;
+        }
+
         const audioData = { label, confidence, timestamp: Date.now() };
         setAudioDanger(audioData);
 
@@ -173,12 +200,13 @@ export const ZoneEngineProvider = ({ children }) => {
     };
 
     // Actual SOS Trigger (Siren + Notification)
-    const triggerSOS = (label) => {
+    const triggerSOS = async (label) => {
         console.warn('🚨 COUNTDOWN EXPIRED: TRIGGERING FULL SOS 🚨');
         setIsSOSActive(true);
         const { startSiren } = require('../services/Siren');
         startSiren();
 
+        // 1. Local Notification
         const Notifications = require('expo-notifications');
         Notifications.scheduleNotificationAsync({
             content: {
@@ -191,7 +219,35 @@ export const ZoneEngineProvider = ({ children }) => {
             },
             trigger: null,
         });
-        // TODO: Here we would also send the API request to guardians
+
+        const incidentLoc = locationRef.current || userLocation;
+
+        // 2. Start Evidence Recording (30s auto-upload)
+        // Pass location so evidence service can tag it
+        startEmergencyRecording(incidentLoc);
+
+        // 3. IMMEDIATE: Send Incident to Backend (Instant Alert)
+        try {
+            const userId = await AsyncStorage.getItem('userId');
+            if (userId && incidentLoc) {
+                await fetch(`${API_URL}/incidents/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        victimId: userId,
+                        type: 'SOS_ALERT', // Type for Gunshot/Explosion
+                        location: {
+                            latitude: incidentLoc.coords.latitude,
+                            longitude: incidentLoc.coords.longitude,
+                            address: `Detected: ${label || 'Danger'}`
+                        }
+                    })
+                });
+                console.log("Immediate SOS Incident logged to backend.");
+            }
+        } catch (error) {
+            console.error("Failed to log SOS incident:", error);
+        }
     };
 
     return (
@@ -205,7 +261,9 @@ export const ZoneEngineProvider = ({ children }) => {
             countdownSeconds,
             isSOSActive,
             setCountdownSeconds, // Exported to allow reset
-            setIsSOSActive
+            setIsSOSActive,
+            isArmed,
+            setIsArmed
         }}>
             {children}
         </ZoneEngineContext.Provider>

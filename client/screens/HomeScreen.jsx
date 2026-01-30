@@ -22,7 +22,8 @@ import GuardianScreen from './GuardianScreen'; // Assuming default export
 
 import { useShakeSensor } from '../hooks/useShakeSensor'; // Import Hook
 import SafetyZoneIndicator from '../components/SafetyZoneIndicator';
-import { API_URL } from '../config';
+import { API_URL } from '../config';  // Fixed import
+import { useZoneEngine } from '../context/ZoneEngineContext';
 
 const Tab = createBottomTabNavigator();
 
@@ -35,7 +36,7 @@ function Dashboard({ navigation }) {
     // I will simply ADD the import at the top, and REMOVE the bad line.
 
     const [isSirenPlaying, setIsSirenPlaying] = useState(false);
-    const [isArmed, setIsArmed] = useState(false); // Move state here or use Context in real app
+    const { isArmed, setIsArmed } = useZoneEngine();
 
     // Fake Call State
     const [fakeCallVisible, setFakeCallVisible] = useState(false);
@@ -188,12 +189,11 @@ function Dashboard({ navigation }) {
     const toggleArmedMode = async () => {
         const newState = !isArmed;
         setIsArmed(newState);
+
         if (newState) {
-            await startBackgroundUpdate();
             Alert.alert("SafeGuard Active", "Shake detection is ON. We are monitoring your location in the background.");
-        } else {
-            await stopBackgroundUpdate();
         }
+        // Stop logic is now handled in Context useEffect
     };
 
     return (
