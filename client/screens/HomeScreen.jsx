@@ -36,7 +36,7 @@ function Dashboard({ navigation }) {
     // I will simply ADD the import at the top, and REMOVE the bad line.
 
     const [isSirenPlaying, setIsSirenPlaying] = useState(false);
-    const { isArmed, setIsArmed } = useZoneEngine();
+    const { isArmed, setIsArmed, isVoiceTriggerEnabled, setIsVoiceTriggerEnabled } = useZoneEngine();
 
     // Fake Call State
     const [fakeCallVisible, setFakeCallVisible] = useState(false);
@@ -196,6 +196,18 @@ function Dashboard({ navigation }) {
         // Stop logic is now handled in Context useEffect
     };
 
+    const toggleVoiceTrigger = () => {
+        const newState = !isVoiceTriggerEnabled;
+        setIsVoiceTriggerEnabled(newState);
+
+        if (newState) {
+            Alert.alert(
+                "🎤 Voice Trigger Active",
+                'Say "Bachao", "Help", or "Emergency" to trigger immediate SOS.'
+            );
+        }
+    };
+
     return (
         <View style={styles.container}>
             <LinearGradient
@@ -217,6 +229,26 @@ function Dashboard({ navigation }) {
                     />
                 </SafeAreaView>
             </LinearGradient>
+
+            {/* Voice Trigger Toggle - Right below header */}
+            {isArmed && (
+                <View style={styles.voiceTriggerBar}>
+                    <View style={styles.voiceTriggerContent}>
+                        <View>
+                            <Text style={styles.voiceTriggerLabel}>🎤 Voice Trigger</Text>
+                            <Text style={styles.voiceTriggerSubtext}>
+                                {isVoiceTriggerEnabled ? '🔴 Listening...' : 'Say "Bachao" for SOS'}
+                            </Text>
+                        </View>
+                        <Switch
+                            value={isVoiceTriggerEnabled}
+                            onValueChange={toggleVoiceTrigger}
+                            trackColor={{ false: "#ccc", true: "#4CAF50" }}
+                            thumbColor={isVoiceTriggerEnabled ? "#fff" : "#f4f3f4"}
+                        />
+                    </View>
+                </View>
+            )}
 
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 <View style={styles.heroSection}>
@@ -373,5 +405,27 @@ const styles = StyleSheet.create({
     row: {
         flexDirection: 'row',
         justifyContent: 'space-between',
+    },
+    voiceTriggerBar: {
+        backgroundColor: '#fff',
+        borderBottomWidth: 1,
+        borderBottomColor: '#e0e0e0',
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+    },
+    voiceTriggerContent: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    voiceTriggerLabel: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#333',
+    },
+    voiceTriggerSubtext: {
+        fontSize: 12,
+        color: '#666',
+        marginTop: 2,
     },
 });

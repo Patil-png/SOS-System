@@ -1,8 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import * as Location from 'expo-location';
 import AudioRecognitionService from '../services/AudioRecognitionService';
+import VoiceTriggerService, { getVoiceTriggerService } from '../services/VoiceTriggerService';
 import { getRiskScoreNodes } from '../services/CrimeDatabase';
 import { startBackgroundUpdate, stopBackgroundUpdate } from '../services/BackgroundService';
+import { useBackButtonPanic } from '../hooks/useBackButtonPanic';
 
 const ZoneEngineContext = createContext();
 
@@ -15,9 +17,11 @@ export const ZoneEngineProvider = ({ children }) => {
     const [countdownSeconds, setCountdownSeconds] = useState(null); // 30s Countdown
     const [isSOSActive, setIsSOSActive] = useState(false); // True AFTER countdown fails
     const [isArmed, setIsArmed] = useState(false); // Master Toggle for Audio/Location
+    const [isVoiceTriggerEnabled, setIsVoiceTriggerEnabled] = useState(false); // Voice "Bachao" detection
     const lastAlertTime = React.useRef(0); // Track last alert time
     const locationRef = React.useRef(null); // Store location synchronously
     const countdownInterval = React.useRef(null); // Ref for interval
+    const voiceTriggerServiceRef = React.useRef(null); // Ref for voice service
 
     // Poll intervals
     const LOCATION_INTERVAL = 60000; // 1 min
@@ -77,6 +81,43 @@ export const ZoneEngineProvider = ({ children }) => {
             stopServices();
         };
     }, [isArmed]);
+
+    // Voice Trigger Management
+    useEffect(() => {
+        let unsubscribe = null;
+
+        if (isVoiceTriggerEnabled) {
+            console.log('🎤 [ZoneEngine] Starting voice trigger service...');
+            const service = getVoiceTriggerService();
+            voiceTriggerServiceRef.current = service;
+
+            // Subscribe to voice detection events
+            unsubscribe = service.subscribe(handleVoiceDetection);
+        } else {
+            console.log('🎤 [ZoneEngine] Voice trigger disabled');
+            voiceTriggerServiceRef.current = null;
+        }
+
+        return () => {
+            if (unsubscribe) {
+                unsubscribe();
+            }
+        };
+    }, [isVoiceTriggerEnabled]);
+
+    // Handle voice detection (immediate SOS trigger)
+    const handleVoiceDetection = ({ triggerWord, fullText }) => {
+        console.log(`🚨 [ZoneEngine] Voice trigger detected: "${triggerWord}" in "${fullText}"`);
+
+        // Immediate SOS trigger - no countdown for voice command!
+        triggerSOS(`Voice Command: ${triggerWord}`);
+    };
+
+    // Back Button Panic (5x back button = immediate SOS) - WORKS IN EXPO GO!
+    useBackButtonPanic(() => {
+        console.log('🚨 [ZoneEngine] Back button panic triggered!');
+        triggerSOS('Back Button Panic');
+    }, isArmed); // Only active when armed
 
     const handleAudioAlert = ({ label, confidence }) => {
         console.log('Engine received audio alert:', label);
@@ -196,13 +237,58 @@ export const ZoneEngineProvider = ({ children }) => {
         }
     };
 
-    // Actual SOS Trigger (Siren + Notification)
-    const triggerSOS = (label) => {
+    // Actual SOS Trigger (Siren + Notification + Recording + Guardian Alert)
+    const triggerSOS = async (label) => {
         console.warn('🚨 COUNTDOWN EXPIRED: TRIGGERING FULL SOS 🚨');
         setIsSOSActive(true);
+
+        // 1. Start Siren
         const { startSiren } = require('../services/Siren');
         startSiren();
 
+        // 2. Get Location immediately
+        let currentLocation = null;
+        try {
+            const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+            currentLocation = {
+                latitude: loc.coords.latitude,
+                longitude: loc.coords.longitude,
+                address: "Emergency Location"
+            };
+            console.log('📍 [triggerSOS] Location captured:', currentLocation);
+        } catch (e) {
+            console.log('⚠️ [triggerSOS] Failed to get location:', e);
+        }
+
+        // 3. Start 30-Second Audio Recording with Location
+        const { startEmergencyRecording } = require('../services/EvidenceService');
+        startEmergencyRecording(currentLocation);
+        console.log('🎙️ [triggerSOS] Emergency recording started');
+
+        // 4. Send Incident to Backend (Guardian sees it on Network tab)
+        try {
+            const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+            const userId = await AsyncStorage.getItem('userId');
+
+            if (userId && currentLocation) {
+                const { API_URL } = require('../config');
+                await fetch(`${API_URL}/incidents/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        victimId: userId,
+                        type: 'SOS_ALERT',
+                        triggerType: label, // "Back Button Panic", "Voice Command: bachao", "Gunshot", etc.
+                        location: currentLocation
+                    })
+                });
+                console.log('✅ [triggerSOS] Guardian notified via API');
+            }
+        } catch (error) {
+            console.log('❌ [triggerSOS] Failed to notify guardians:', error);
+        }
+
+        // 5. Show Local Notification
         const Notifications = require('expo-notifications');
         Notifications.scheduleNotificationAsync({
             content: {
@@ -215,7 +301,6 @@ export const ZoneEngineProvider = ({ children }) => {
             },
             trigger: null,
         });
-        // TODO: Here we would also send the API request to guardians
     };
 
     return (
@@ -231,9 +316,13 @@ export const ZoneEngineProvider = ({ children }) => {
             setCountdownSeconds, // Exported to allow reset
             setIsSOSActive,
             isArmed,
-            setIsArmed
+            setIsArmed,
+            isVoiceTriggerEnabled,
+            setIsVoiceTriggerEnabled
         }}>
             {children}
+            {/* Render Voice Trigger Service (hidden WebView) */}
+            {isVoiceTriggerEnabled && <VoiceTriggerService ref={voiceTriggerServiceRef} />}
         </ZoneEngineContext.Provider>
     );
 };
