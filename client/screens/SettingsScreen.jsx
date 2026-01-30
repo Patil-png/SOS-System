@@ -36,7 +36,7 @@ const THEME = {
 
 export default function SettingsScreen({ navigation }) {
     const { settings, updateSetting } = useSettings();
-    const { shakeSensitivity, radius, safeWord, isStealth, shakeEnabled } = settings;
+    const { shakeSensitivity, radius, safeWord, isStealth, shakeEnabled, flashlightIntensity } = settings;
 
     // Local state to prevent input blur on each keystroke
     const [localSafeWord, setLocalSafeWord] = React.useState('');
@@ -213,6 +213,32 @@ export default function SettingsScreen({ navigation }) {
                                 thumbColor="#FFF"
                                 ios_backgroundColor="#334155"
                             />
+                        }
+                    />
+
+                    <SettingItem
+                        icon="flashlight-outline"
+                        title="Strobe Intensity"
+                        description={`Speed: ${(flashlightIntensity * 100).toFixed(0)}%`}
+                        isLast={true}
+                        subContent={
+                            <View style={styles.sliderWrapper}>
+                                <View style={styles.sliderLabels}>
+                                    <Text style={styles.sliderLabel}>Slow</Text>
+                                    <Text style={styles.sliderLabel}>Hyper</Text>
+                                </View>
+                                <Slider
+                                    style={styles.slider}
+                                    minimumValue={0.1}
+                                    maximumValue={1.0}
+                                    step={0.1}
+                                    value={flashlightIntensity || 1.0}
+                                    onSlidingComplete={(val) => updateSetting('flashlightIntensity', val)}
+                                    minimumTrackTintColor={THEME.danger}
+                                    maximumTrackTintColor={THEME.cardBorder}
+                                    thumbTintColor={THEME.text}
+                                />
+                            </View>
                         }
                     />
                 </SettingSection>
