@@ -10,7 +10,6 @@ export const SettingsProvider = ({ children }) => {
         safeWord: '',
         isStealth: false,
         shakeEnabled: true,
-        flashlightIntensity: 1.0, // 0.1 (Slow) to 1.0 (Fast Strobe)
     });
 
     useEffect(() => {
@@ -19,7 +18,7 @@ export const SettingsProvider = ({ children }) => {
 
     const loadSettings = async () => {
         try {
-            const keys = ['shakeSensitivity', 'deviationRadius', 'safeWord', 'stealthMode', 'shakeEnabled', 'flashlightIntensity'];
+            const keys = ['shakeSensitivity', 'deviationRadius', 'safeWord', 'stealthMode', 'shakeEnabled'];
             const result = await AsyncStorage.multiGet(keys);
             const stores = Object.fromEntries(result);
 
@@ -29,7 +28,6 @@ export const SettingsProvider = ({ children }) => {
                 safeWord: stores.safeWord || '',
                 isStealth: stores.stealthMode === 'true',
                 shakeEnabled: stores.shakeEnabled !== 'false', // Default to true if not set
-                flashlightIntensity: stores.flashlightIntensity ? parseFloat(stores.flashlightIntensity) : 1.0,
             });
         } catch (e) {
             console.error("Failed to load settings", e);
@@ -47,7 +45,6 @@ export const SettingsProvider = ({ children }) => {
         else if (key === 'safeWord') storeKey = 'safeWord';
         else if (key === 'isStealth') storeKey = 'stealthMode';
         else if (key === 'shakeEnabled') storeKey = 'shakeEnabled';
-        else if (key === 'flashlightIntensity') storeKey = 'flashlightIntensity';
 
         if (storeKey) {
             await AsyncStorage.setItem(storeKey, String(value));

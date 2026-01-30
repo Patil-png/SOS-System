@@ -3,11 +3,6 @@ import * as Location from 'expo-location';
 import AudioRecognitionService from '../services/AudioRecognitionService';
 import { getRiskScoreNodes } from '../services/CrimeDatabase';
 import { startBackgroundUpdate, stopBackgroundUpdate } from '../services/BackgroundService';
-import { startEmergencyRecording } from '../services/EvidenceService';
-import { API_URL } from '../config';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { CameraView, Camera } from 'expo-camera';
-import { useSettings } from './SettingsContext'; // For Intensity
 
 const ZoneEngineContext = createContext();
 
@@ -23,12 +18,6 @@ export const ZoneEngineProvider = ({ children }) => {
     const lastAlertTime = React.useRef(0); // Track last alert time
     const locationRef = React.useRef(null); // Store location synchronously
     const countdownInterval = React.useRef(null); // Ref for interval
-    const strobeInterval = React.useRef(null); // Ref for Flashlight Strobe
-
-    // Flashlight State
-    const [isTorchOn, setIsTorchOn] = useState(false);
-    const { settings } = useSettings(); // Get Intensity
-    const intensity = settings.flashlightIntensity || 1.0;
 
     // Poll intervals
     const LOCATION_INTERVAL = 60000; // 1 min
@@ -207,45 +196,13 @@ export const ZoneEngineProvider = ({ children }) => {
         }
     };
 
-    // Flashlight Strobe Logic
-    const startStrobe = () => {
-        if (strobeInterval.current) return; // Already running
-
-        const MIN_INT_MS = 30;   // Fast
-        const MAX_INT_MS = 1000; // Slow
-        // Calculate Interval: 1.0 -> 30ms, 0.1 -> 1000ms
-        const intervalMs = MAX_INT_MS - (intensity * (MAX_INT_MS - MIN_INT_MS));
-
-        console.log(`Starting Strobe. Intensity: ${intensity}, Interval: ${intervalMs.toFixed(0)}ms`);
-
-        let isOn = false;
-        strobeInterval.current = setInterval(() => {
-            isOn = !isOn;
-            setIsTorchOn(isOn);
-        }, intervalMs);
-    };
-
-    const stopStrobe = () => {
-        if (strobeInterval.current) {
-            clearInterval(strobeInterval.current);
-            strobeInterval.current = null;
-        }
-        setIsTorchOn(false);
-    };
-
-    // Actual SOS Trigger (Siren + Notification + Flashlight)
-    const triggerSOS = async (label) => {
+    // Actual SOS Trigger (Siren + Notification)
+    const triggerSOS = (label) => {
         console.warn('🚨 COUNTDOWN EXPIRED: TRIGGERING FULL SOS 🚨');
         setIsSOSActive(true);
-
-        // 1. Siren
         const { startSiren } = require('../services/Siren');
         startSiren();
 
-        // 2. Flashlight Strobe
-        startStrobe();
-
-        // 3. Local Notification
         const Notifications = require('expo-notifications');
         Notifications.scheduleNotificationAsync({
             content: {
@@ -258,35 +215,7 @@ export const ZoneEngineProvider = ({ children }) => {
             },
             trigger: null,
         });
-
-        const incidentLoc = locationRef.current || userLocation;
-
-        // 4. Start Evidence Recording (30s auto-upload)
-        // Pass location so evidence service can tag it
-        startEmergencyRecording(incidentLoc);
-
-        // 5. IMMEDIATE: Send Incident to Backend (Instant Alert)
-        try {
-            const userId = await AsyncStorage.getItem('userId');
-            if (userId && incidentLoc) {
-                await fetch(`${API_URL}/incidents/create`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        victimId: userId,
-                        type: 'SOS_ALERT', // Type for Gunshot/Explosion
-                        location: {
-                            latitude: incidentLoc.coords.latitude,
-                            longitude: incidentLoc.coords.longitude,
-                            address: `Detected: ${label || 'Danger'}`
-                        }
-                    })
-                });
-                console.log("Immediate SOS Incident logged to backend.");
-            }
-        } catch (error) {
-            console.error("Failed to log SOS incident:", error);
-        }
+        // TODO: Here we would also send the API request to guardians
     };
 
     return (
@@ -305,13 +234,6 @@ export const ZoneEngineProvider = ({ children }) => {
             setIsArmed
         }}>
             {children}
-            {/* Hidden Camera Component for Flashlight Control */}
-            {isArmed && (
-                <CameraView
-                    style={{ width: 1, height: 1, position: 'absolute', opacity: 0 }}
-                    enableTorch={isTorchOn}
-                />
-            )}
         </ZoneEngineContext.Provider>
     );
 };
